@@ -26,6 +26,9 @@
         if (/Failed to fetch|NetworkError|Load failed|Sem conexão|aborted|timeout/i.test(texto)) {
             return 'Sem internet — seus registros continuam salvos no tablet e sincronizarão ao reconectar.';
         }
+        if (/formato desconhecido|descompressão gzip/i.test(texto)) {
+            return 'Atualize a página do PraxisBot Tablet para ler os dados sincronizados pela nova versão do computador.';
+        }
         if (/decifrar|OperationError|authentication tag/i.test(texto)) {
             return 'A chave de sincronização não confere com a do computador. Leia o QR Code novamente em Ajustes.';
         }
@@ -270,7 +273,10 @@
                                 }
                                 const proximaRevisao = Math.max(remota?.revisao || 0, local.revisao || 0) + 1;
                                 const payloadObj = local.excluidoEm ? { id, excluidoEm: local.excluidoEm } : local.fila;
-                                const payloadCifrado = await cryptoWeb.cifrarJson(chaveAtual, payloadObj, `fila:${id}`);
+                                let payloadCifrado = await cryptoWeb.cifrarJson(chaveAtual, payloadObj, `fila:${id}`);
+                                if (payloadCifrado.length > 180000) {
+                                    payloadCifrado = await cryptoWeb.cifrarJson(chaveAtual, payloadObj, `fila:${id}`, { comprimir: true });
+                                }
                                 linhasParaSubir.push({
                                     user_id: userId,
                                     fila_id: id,

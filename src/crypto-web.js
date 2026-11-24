@@ -2,7 +2,9 @@
 // 100% interoperável byte a byte com src/main/cripto-companheiro.js (Electron/Node):
 // - Segredo de 128 bits codificado em Base32 Crockford (26 caracteres).
 // - Derivação HKDF-SHA256 com os mesmos sal/info para chave AES-GCM-256 não-exportável.
-// - Formato cifrado: "v1.<iv_base64url>.<ciphertext_com_tag_base64url>".
+// - Formato cifrado:
+//   - "v1.<iv_base64url>.<ciphertext_com_tag_base64url>" (JSON UTF-8 puro)
+//   - "v2.<iv_base64url>.<ciphertext_com_tag_base64url>" (JSON UTF-8 comprimido com gzip)
 (function (global) {
     'use strict';
 
@@ -93,25 +95,55 @@
         return { chave, impressaoDigital: fp };
     }
 
-    async function cifrarJson(chave, valor, aad = '') {
+    async function gzipBytes(bytes) {
+        if (typeof global.CompressionStream !== 'function') {
+            throw new Error('Este navegador não suporta compressão gzip.');
+        }
+        const stream = new global.Blob([bytes]).stream().pipeThrough(new global.CompressionStream('gzip'));
+        return new Uint8Array(await new global.Response(stream).arrayBuffer());
+    }
+
+    async function gunzipBytes(bytes) {
+        if (typeof global.DecompressionStream !== 'function') {
+            throw new Error('Este navegador não suporta descompressão gzip. Atualize o Chrome do tablet.');
+        }
+        const stream = new global.Blob([bytes]).stream().pipeThrough(new global.DecompressionStream('gzip'));
+        return new Uint8Array(await new global.Response(stream).arrayBuffer());
+    }
+
+    async function cifrarJson(chave, valor, aad = '', { comprimir = false } = {}) {
         const iv = global.crypto.getRandomValues(new Uint8Array(12));
         const opcoes = { name: 'AES-GCM', iv };
-        if (aad) opcoes.additionalData = encoder.encode(String(aad));
-        const dados = encoder.encode(JSON.stringify(valor));
-        const cifrado = await global.crypto.subtle.encrypt(opcoes, chave, dados);
-        return `v1.${bytesParaBase64Url(iv)}.${bytesParaBase64Url(new Uint8Array(cifrado))}`;
+        const versao = comprimir ? 'v2' : 'v1';
+        if (comprimir) {
+            opcoes.additionalData = encoder.encode(`v2:${String(aad || '')}`);
+        } else if (aad) {
+            opcoes.additionalData = encoder.encode(String(aad));
+        }
+        const dadosJson = encoder.encode(JSON.stringify(valor));
+        const entrada = comprimir ? await gzipBytes(dadosJson) : dadosJson;
+        const cifrado = await global.crypto.subtle.encrypt(opcoes, chave, entrada);
+        return `${versao}.${bytesParaBase64Url(iv)}.${bytesParaBase64Url(new Uint8Array(cifrado))}`;
     }
 
     async function decifrarJson(chave, pacote, aad = '') {
         const partes = String(pacote || '').split('.');
-        if (partes.length !== 3 || partes[0] !== 'v1') throw new Error('Pacote cifrado em formato desconhecido.');
+        const versao = partes[0];
+        if (partes.length !== 3 || (versao !== 'v1' && versao !== 'v2')) {
+            throw new Error('Pacote cifrado em formato desconhecido.');
+        }
         const iv = base64UrlParaBytes(partes[1]);
         const corpo = base64UrlParaBytes(partes[2]);
         if (iv.length !== 12 || corpo.length < 16) throw new Error('Pacote cifrado incompleto.');
         const opcoes = { name: 'AES-GCM', iv };
-        if (aad) opcoes.additionalData = encoder.encode(String(aad));
+        if (versao === 'v2') {
+            opcoes.additionalData = encoder.encode(`v2:${String(aad || '')}`);
+        } else if (aad) {
+            opcoes.additionalData = encoder.encode(String(aad));
+        }
         const aberto = await global.crypto.subtle.decrypt(opcoes, chave, corpo);
-        return JSON.parse(decoder.decode(aberto));
+        const bytesTexto = versao === 'v2' ? await gunzipBytes(new Uint8Array(aberto)) : new Uint8Array(aberto);
+        return JSON.parse(decoder.decode(bytesTexto));
     }
 
     async function sha256Texto(valor) {

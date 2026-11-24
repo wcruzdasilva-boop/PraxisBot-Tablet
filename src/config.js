@@ -5,7 +5,7 @@
     'use strict';
 
     global.PraxisTabletConfig = Object.freeze({
-        VERSAO: '0.3.0',
+        VERSAO: '0.3.1',
         URL_CONTAS: 'https://agptohtjasswuzffzpmh.supabase.co',
         CHAVE_ANON_CONTAS: 'sb_publishable_Rjr9Y8E7rq1hIYDiZDfJZg_opNnQcf8',
         INTERVALO_SYNC_MS: 25 * 1000,

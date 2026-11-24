@@ -1154,9 +1154,18 @@
     });
     globalThis.addEventListener('offline', () => renderizarStatusSync());
 
-    // Service Worker offline-first (só em HTTPS ou localhost).
+    // Service Worker offline-first (só em HTTPS ou localhost), com recarga automática ao atualizar versão.
     if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-        navigator.serviceWorker.register('./sw.js').catch(() => {});
+        const jaControlado = Boolean(navigator.serviceWorker.controller);
+        let recarregandoPorSw = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (!jaControlado || recarregandoPorSw) return;
+            recarregandoPorSw = true;
+            location.reload();
+        });
+        navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+            .then(reg => reg.update().catch(() => {}))
+            .catch(() => {});
     }
 
     // Bootstrap inicial.
