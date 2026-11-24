@@ -1,0 +1,774 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#16263f" />
+  <meta name="color-scheme" content="light" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="PraxisBot Tablet" />
+  <title>PraxisBot Tablet</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" type="image/png" href="./icons/icon128.png" />
+  <link rel="apple-touch-icon" href="./icons/icon128.png" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="toast" class="toast is-hidden" role="status" aria-live="polite"></div>
+
+  <!-- Tela 1: Login com a conta PraxisBot (Supabase praxisbot-contas) -->
+  <section id="screen-auth" class="onboarding-screen is-hidden">
+    <div class="onboarding-card">
+      <div class="onboarding-brand">
+        <img src="./icons/icon128.png" alt="PraxisBot" />
+        <div>
+          <h1>PraxisBot Tablet</h1>
+          <p>Companheiro de sala de aula sincronizado com o seu computador</p>
+        </div>
+      </div>
+
+      <div class="segmented" role="tablist">
+        <button id="auth-tab-senha" class="segmented-btn is-active" type="button" role="tab">Entrar com senha</button>
+        <button id="auth-tab-codigo" class="segmented-btn" type="button" role="tab">Primeiro acesso / Esqueci a senha</button>
+      </div>
+
+      <div id="auth-feedback" class="alert is-hidden" role="alert"></div>
+
+      <form id="auth-form-senha" class="stack">
+        <label class="field">
+          <span>E-mail da conta PraxisBot</span>
+          <input id="auth-email" type="email" autocomplete="email" placeholder="professor@escola.com" required />
+        </label>
+        <label class="field">
+          <span>Senha</span>
+          <input id="auth-password" type="password" autocomplete="current-password" placeholder="Sua senha" required />
+        </label>
+        <button id="auth-submit-senha" class="btn btn-primary btn-lg" type="submit">Entrar</button>
+      </form>
+
+      <div id="auth-form-codigo" class="stack is-hidden">
+        <label class="field">
+          <span>E-mail da conta PraxisBot</span>
+          <input id="auth-otp-email" type="email" autocomplete="email" placeholder="professor@escola.com" />
+        </label>
+        <button id="auth-send-otp" class="btn btn-secondary btn-lg" type="button">Enviar código por e-mail</button>
+
+        <div id="auth-otp-step2" class="stack is-hidden">
+          <label class="field">
+            <span>Código recebido por e-mail</span>
+            <input id="auth-otp-code" type="text" inputmode="numeric" placeholder="000000" />
+          </label>
+          <button id="auth-verify-otp" class="btn btn-primary btn-lg" type="button">Confirmar código</button>
+        </div>
+
+        <div id="auth-otp-step3" class="stack is-hidden">
+          <label class="field">
+            <span>Nova senha (mínimo 8 caracteres)</span>
+            <input id="auth-new-password" type="password" autocomplete="new-password" placeholder="Crie uma senha forte" />
+          </label>
+          <button id="auth-save-password" class="btn btn-primary btn-lg" type="button">Salvar senha e entrar</button>
+        </div>
+      </div>
+
+      <p class="onboarding-note">
+        O tablet usa a mesma conta do PraxisBot do computador e <strong>não consome cota</strong> de dispositivos da licença.
+      </p>
+    </div>
+  </section>
+
+  <!-- Tela 2: Pareamento E2EE (QR Code ou código manual) -->
+  <section id="screen-pair" class="onboarding-screen is-hidden">
+    <div class="onboarding-card onboarding-card-wide">
+      <div class="onboarding-brand">
+        <img src="./icons/icon128.png" alt="PraxisBot" />
+        <div>
+          <h1>Parear com o computador</h1>
+          <p id="pair-account-label">Conta conectada</p>
+        </div>
+      </div>
+
+      <p class="muted-text">
+        No PraxisBot do computador, abra <strong>Configurações → Conta e licença → Sincronização com o tablet</strong>,
+        ative a sincronização e aponte a câmera do tablet para o QR Code (ou digite o código de 26 caracteres).
+      </p>
+
+      <div id="pair-feedback" class="alert is-hidden" role="alert"></div>
+
+      <div id="pair-scanner-box" class="scanner-box is-hidden">
+        <video id="pair-video" playsinline muted></video>
+        <div class="scanner-reticle" aria-hidden="true"></div>
+        <button id="pair-stop-camera" class="btn btn-secondary scanner-close" type="button">Fechar câmera</button>
+      </div>
+
+      <div class="pair-actions">
+        <button id="pair-start-camera" class="btn btn-primary btn-lg" type="button">Ler QR Code com a câmera</button>
+      </div>
+
+      <div class="divider"><span>ou digite o código exibido no computador</span></div>
+
+      <form id="pair-form-code" class="stack">
+        <label class="field">
+          <span>Código de pareamento (26 caracteres)</span>
+          <input id="pair-code-input" type="text" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX" />
+        </label>
+        <div class="row-actions">
+          <button id="pair-submit-code" class="btn btn-primary btn-lg" type="submit">Parear e sincronizar</button>
+          <button id="pair-cancel-back" class="btn btn-secondary btn-lg is-hidden" type="button">Voltar</button>
+          <button id="pair-logout" class="btn btn-ghost" type="button">Trocar conta</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- Aplicativo principal (11" paisagem: barra lateral; retrato: barra inferior) -->
+  <div id="app-shell" class="app-shell is-hidden">
+    <aside class="sidebar" aria-label="Navegação do PraxisBot Tablet">
+      <div class="brand">
+        <img src="./icons/icon128.png" alt="PraxisBot" />
+        <div>
+          <strong>PraxisBot</strong>
+          <span>Tablet 11"</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-btn is-active" data-tab="hoje" type="button">
+          <span class="nav-ico" aria-hidden="true">📅</span>
+          <span>Hoje</span>
+        </button>
+        <button class="nav-btn" data-tab="chamada" type="button">
+          <span class="nav-ico" aria-hidden="true">✓</span>
+          <span>Chamada</span>
+        </button>
+        <button class="nav-btn" data-tab="aulas" type="button">
+          <span class="nav-ico" aria-hidden="true">✎</span>
+          <span>Aulas</span>
+        </button>
+        <button class="nav-btn" data-tab="avaliacoes" type="button">
+          <span class="nav-ico" aria-hidden="true">★</span>
+          <span>Aval. e Notas</span>
+        </button>
+        <button class="nav-btn" data-tab="diario" type="button">
+          <span class="nav-ico" aria-hidden="true">▦</span>
+          <span>Diário</span>
+        </button>
+        <button class="nav-btn" data-tab="filas" type="button">
+          <span class="nav-ico" aria-hidden="true">▤</span>
+          <span>Filas</span>
+          <span id="nav-pending-badge" class="nav-badge is-hidden">0</span>
+        </button>
+        <button class="nav-btn" data-tab="ajustes" type="button">
+          <span class="nav-ico" aria-hidden="true">⚙</span>
+          <span>Ajustes</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sync-pill" id="sidebar-sync-pill">
+          <span class="dot" id="sidebar-sync-dot"></span>
+          <div>
+            <strong id="sidebar-sync-title">Offline</strong>
+            <span id="sidebar-sync-sub">Aguardando sincronização</span>
+          </div>
+        </div>
+        <button id="sidebar-sync-btn" class="btn btn-secondary btn-sm btn-block" type="button">Sincronizar agora</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- Barra superior compacta (principalmente retrato / status rápido) -->
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" id="topbar-school">PRAXISBOT TABLET</p>
+          <h1 id="topbar-title">Hoje e Horário</h1>
+        </div>
+        <div class="topbar-right">
+          <span id="topbar-status-badge" class="badge badge-neutral">Sincronizado</span>
+          <button id="topbar-sync-btn" class="btn btn-secondary btn-sm" type="button">Sincronizar</button>
+        </div>
+      </header>
+
+      <div id="global-sync-error" class="alert alert-warning is-hidden" role="status"></div>
+
+      <!-- ABA 1: HOJE & HORÁRIO -->
+      <section id="view-hoje" class="view is-active">
+        <div class="hoje-layout">
+          <article class="card calendar-card">
+            <div class="card-head">
+              <div>
+                <p class="eyebrow">CALENDÁRIO</p>
+                <h2 id="cal-month-label">—</h2>
+              </div>
+              <div class="cal-nav">
+                <button id="cal-prev" class="icon-btn" type="button" aria-label="Mês anterior">‹</button>
+                <button id="cal-today" class="btn btn-secondary btn-sm" type="button">Hoje</button>
+                <button id="cal-next" class="icon-btn" type="button" aria-label="Próximo mês">›</button>
+              </div>
+            </div>
+            <div class="cal-weekdays">
+              <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
+            </div>
+            <div id="cal-grid" class="cal-grid"></div>
+            <p class="cal-legend">
+              <span><i class="swatch swatch-aula"></i> Dia com aula</span>
+              <span><i class="swatch swatch-feriado"></i> Feriado</span>
+            </p>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <p class="eyebrow">AULAS DO DIA</p>
+                <h2 id="hoje-day-title">—</h2>
+              </div>
+              <div class="row-actions">
+                <button id="hoje-quick-chamada" class="btn btn-secondary btn-sm" type="button">Chamada avulsa</button>
+                <button id="hoje-quick-aula" class="btn btn-primary btn-sm" type="button">Nova aula</button>
+              </div>
+            </div>
+            <div id="hoje-empty" class="empty-box is-hidden"></div>
+            <div id="hoje-cards" class="class-cards"></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ABA 2: CHAMADA (FREQUÊNCIA) -->
+      <section id="view-chamada" class="view">
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">REGISTRO EM SALA</p>
+              <h2 id="chamada-heading">Nova chamada (Frequência)</h2>
+            </div>
+            <button id="chamada-reset" class="btn btn-ghost btn-sm" type="button">Limpar / Nova</button>
+          </div>
+
+          <div class="form-grid-4">
+            <label class="field">
+              <span>Turma</span>
+              <select id="chamada-turma"></select>
+            </label>
+            <label class="field">
+              <span>Disciplina</span>
+              <select id="chamada-disciplina"></select>
+            </label>
+            <label class="field">
+              <span>A partir de (data-base)</span>
+              <input id="chamada-data" type="date" />
+            </label>
+            <label class="field">
+              <span>Nome da fila</span>
+              <input id="chamada-nome" type="text" maxlength="100" placeholder="Ex.: FREQ 104 - 24/11" />
+            </label>
+          </div>
+
+          <div class="chamada-toolbar">
+            <div id="chamada-col-tabs" class="col-tabs"></div>
+            <div class="row-actions">
+              <button id="chamada-add-col" class="btn btn-secondary btn-sm" type="button">+ Outra aula</button>
+              <button id="chamada-del-col" class="btn btn-ghost btn-sm is-hidden" type="button">Remover coluna</button>
+            </div>
+          </div>
+
+          <div id="chamada-previsao-bar" class="info-strip is-hidden"></div>
+
+          <div class="chamada-stats">
+            <div class="stat-chips" id="chamada-counters"></div>
+            <div class="row-actions">
+              <button id="chamada-all-p" class="btn btn-secondary btn-sm" type="button">Todos P</button>
+              <button id="chamada-all-f" class="btn btn-secondary btn-sm" type="button">Todos F</button>
+              <label class="check-inline">
+                <input id="chamada-substituir" type="checkbox" />
+                <span>Substituir já lançadas</span>
+              </label>
+            </div>
+          </div>
+
+          <div id="chamada-empty" class="empty-box is-hidden"></div>
+          <div id="chamada-list" class="student-grid"></div>
+
+          <div class="sticky-footer">
+            <div id="chamada-validation" class="validation-hint"></div>
+            <div class="row-actions">
+              <button id="chamada-save" class="btn btn-secondary btn-lg" type="button">Salvar fila (sincronizar)</button>
+              <button id="chamada-save-run" class="btn btn-primary btn-lg" type="button">Salvar e executar no PC</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ABA 3: AULAS -->
+      <section id="view-aulas" class="view">
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">CONTEÚDO MINISTRADO</p>
+              <h2 id="aulas-heading">Nova fila de Aulas</h2>
+            </div>
+            <button id="aulas-reset" class="btn btn-ghost btn-sm" type="button">Limpar / Nova</button>
+          </div>
+
+          <div class="form-grid-4">
+            <label class="field">
+              <span>Disciplina</span>
+              <select id="aulas-disciplina"></select>
+            </label>
+            <label class="field">
+              <span>Período</span>
+              <select id="aulas-periodo">
+                <option value="1º PERIODO">1º período</option>
+                <option value="2º PERIODO">2º período</option>
+                <option value="3º PERIODO">3º período</option>
+                <option value="4º PERIODO">4º período</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Data inicial</span>
+              <input id="aulas-data" type="date" />
+            </label>
+            <label class="field">
+              <span>Nome da fila</span>
+              <input id="aulas-nome" type="text" maxlength="100" placeholder="Ex.: Aulas 104 - Novembro" />
+            </label>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="field">
+              <span>Turmas selecionadas (toque para marcar)</span>
+              <div id="aulas-turmas-chips" class="chip-picker"></div>
+            </div>
+            <div class="stack-sm">
+              <label class="field">
+                <span>Feriados a pular (dd/mm, separados por vírgula)</span>
+                <input id="aulas-feriados" type="text" placeholder="Ex.: 02/11, 15/11, 20/11" />
+              </label>
+              <label class="check-inline">
+                <input id="aulas-substituir" type="checkbox" />
+                <span>Substituir aulas já registradas</span>
+              </label>
+            </div>
+          </div>
+
+          <div id="aulas-tag-warning" class="alert alert-warning is-hidden">
+            Atenção: texto com “&lt;” seguido de letra faz o SIAEP recusar a gravação (HTTP 500). O computador converte automaticamente ao gravar, mas revise o texto.
+          </div>
+
+          <div class="aulas-header-row">
+            <h3>Aulas da fila</h3>
+            <div class="row-actions">
+              <button id="aulas-ia-toggle" class="btn btn-secondary btn-sm" type="button">Gerar com IA (Gemini)</button>
+              <button id="aulas-add-row" class="btn btn-secondary btn-sm" type="button">+ Adicionar aula</button>
+            </div>
+          </div>
+
+          <!-- Fase 3: Gerador de aulas por IA (Gemini) — chave fica só no tablet -->
+          <div id="aulas-ia-panel" class="ia-panel is-hidden">
+            <div class="card-head">
+              <div>
+                <p class="eyebrow">GERADOR POR IA (GEMINI)</p>
+                <h3>Montar cronograma de aulas</h3>
+              </div>
+              <button id="aulas-ia-close" class="icon-btn" type="button" aria-label="Fechar gerador IA">✕</button>
+            </div>
+            <div id="aulas-ia-no-key" class="alert alert-warning is-hidden">
+              Nenhuma chave da API Gemini salva neste tablet. Configure em <strong>Ajustes → Inteligência artificial</strong> (fica salva apenas no tablet).
+            </div>
+            <div class="form-grid-2">
+              <label class="field">
+                <span>Tema central / competência</span>
+                <input id="ia-tema" type="text" placeholder="Ex.: Leis de Newton e aplicações no cotidiano" />
+              </label>
+              <div class="segmented" role="tablist">
+                <button id="ia-modo-qtd" class="segmented-btn is-active" type="button">Quantidade fixa</button>
+                <button id="ia-modo-periodo" class="segmented-btn" type="button">Período letivo</button>
+              </div>
+            </div>
+            <div id="ia-campos-qtd" class="form-grid-4">
+              <label class="field">
+                <span>Quantidade de aulas</span>
+                <input id="ia-qtd" type="number" min="1" max="40" value="4" />
+              </label>
+            </div>
+            <div id="ia-campos-periodo" class="form-grid-4 is-hidden">
+              <label class="field">
+                <span>Data inicial do período</span>
+                <input id="ia-data-inicio" type="date" />
+              </label>
+              <label class="field">
+                <span>Data final do período</span>
+                <input id="ia-data-fim" type="date" />
+              </label>
+              <label class="field">
+                <span>Aulas por semana</span>
+                <input id="ia-aulas-semana" type="number" min="1" max="10" value="2" />
+              </label>
+            </div>
+            <label class="field">
+              <span>Diretrizes metodológicas (opcional)</span>
+              <textarea id="ia-diretrizes" placeholder="Ex.: Linguagem acessível para 1ª série do Ensino Médio, com exemplos práticos e avaliação formativa."></textarea>
+            </label>
+            <div class="row-actions" style="margin-top: 12px;">
+              <button id="ia-gerar-btn" class="btn btn-primary" type="button">Gerar aulas com Gemini</button>
+              <button id="ia-inserir-btn" class="btn btn-secondary is-hidden" type="button">Inserir aulas na fila</button>
+            </div>
+            <div id="ia-status" class="muted-text"></div>
+            <div id="ia-preview" class="ia-preview is-hidden"></div>
+          </div>
+
+          <div id="aulas-list" class="aulas-cards"></div>
+
+          <div class="sticky-footer">
+            <div id="aulas-validation" class="validation-hint"></div>
+            <div class="row-actions">
+              <button id="aulas-save" class="btn btn-secondary btn-lg" type="button">Salvar fila (sincronizar)</button>
+              <button id="aulas-save-run" class="btn btn-primary btn-lg" type="button">Salvar e executar no PC</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ABA 4 (Fase 3): AVALIAÇÕES E NOTAS -->
+      <section id="view-avaliacoes" class="view">
+        <div class="subtab-bar">
+          <div class="segmented" role="tablist">
+            <button id="subtab-btn-avaliacoes" class="segmented-btn is-active" type="button">Avaliações</button>
+            <button id="subtab-btn-notas" class="segmented-btn" type="button">Notas</button>
+          </div>
+        </div>
+
+        <!-- Sub-aba Avaliações -->
+        <article id="panel-avaliacoes" class="card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">CADASTRO DE AVALIAÇÕES</p>
+              <h2 id="aval-heading">Nova fila de Avaliações</h2>
+            </div>
+            <button id="aval-reset" class="btn btn-ghost btn-sm" type="button">Limpar / Nova</button>
+          </div>
+
+          <div class="form-grid-4">
+            <label class="field">
+              <span>Disciplina</span>
+              <select id="aval-disciplina"></select>
+            </label>
+            <label class="field">
+              <span>Período</span>
+              <select id="aval-periodo">
+                <option value="1º PERIODO">1º período</option>
+                <option value="2º PERIODO">2º período</option>
+                <option value="3º PERIODO">3º período</option>
+                <option value="4º PERIODO">4º período</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Data inicial</span>
+              <input id="aval-data" type="date" />
+            </label>
+            <label class="field">
+              <span>Intervalo (aulas entre avaliações)</span>
+              <input id="aval-intervalo" type="number" min="0" max="60" value="2" />
+            </label>
+          </div>
+
+          <div class="form-grid-2">
+            <label class="field">
+              <span>Nome da fila</span>
+              <input id="aval-nome" type="text" maxlength="100" placeholder="Ex.: Avaliações 104 - 4º Período" />
+            </label>
+            <label class="field">
+              <span>Feriados a pular (dd/mm)</span>
+              <input id="aval-feriados" type="text" placeholder="Ex.: 02/11, 15/11" />
+            </label>
+          </div>
+
+          <div class="field" style="margin-bottom: 14px;">
+            <span>Turmas selecionadas (toque para marcar)</span>
+            <div id="aval-turmas-chips" class="chip-picker"></div>
+          </div>
+
+          <div class="field" style="margin-bottom: 14px;">
+            <span>Instrumentos avaliativos (escolha de 1 a 5, na ordem desejada)</span>
+            <div id="aval-tipos-chips" class="chip-picker"></div>
+          </div>
+
+          <div class="row-actions" style="margin-bottom: 10px;">
+            <label class="check-inline">
+              <input id="aval-tentar-novamente" type="checkbox" checked />
+              <span>Tentar novamente se o SIAEP estiver fora do ar (até 12 h)</span>
+            </label>
+            <label class="check-inline">
+              <input id="aval-substituir" type="checkbox" />
+              <span>Substituir avaliações existentes</span>
+            </label>
+          </div>
+
+          <div class="sticky-footer">
+            <div id="aval-validation" class="validation-hint"></div>
+            <div class="row-actions">
+              <button id="aval-save" class="btn btn-secondary btn-lg" type="button">Salvar fila (sincronizar)</button>
+              <button id="aval-save-run" class="btn btn-primary btn-lg" type="button">Salvar e executar no PC</button>
+            </div>
+          </div>
+        </article>
+
+        <!-- Sub-aba Notas -->
+        <article id="panel-notas" class="card is-hidden">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">LANÇAMENTO DE NOTAS</p>
+              <h2 id="notas-heading">Nova fila de Notas</h2>
+            </div>
+            <button id="notas-reset" class="btn btn-ghost btn-sm" type="button">Limpar / Nova</button>
+          </div>
+
+          <div class="form-grid-4">
+            <label class="field">
+              <span>Turma</span>
+              <select id="notas-turma"></select>
+            </label>
+            <label class="field">
+              <span>Disciplina</span>
+              <select id="notas-disciplina"></select>
+            </label>
+            <label class="field">
+              <span>Período</span>
+              <select id="notas-periodo">
+                <option value="1º PERIODO">1º período</option>
+                <option value="2º PERIODO">2º período</option>
+                <option value="3º PERIODO">3º período</option>
+                <option value="4º PERIODO">4º período</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Nome da fila</span>
+              <input id="notas-nome" type="text" maxlength="100" placeholder="Ex.: Notas 104 - 4º Período" />
+            </label>
+          </div>
+
+          <div id="notas-ref-bar" class="info-strip is-hidden"></div>
+
+          <div class="chamada-toolbar">
+            <div id="notas-col-tabs" class="col-tabs"></div>
+            <div class="row-actions">
+              <button id="notas-add-col" class="btn btn-secondary btn-sm" type="button">+ Nova nota</button>
+              <button id="notas-del-col" class="btn btn-ghost btn-sm is-hidden" type="button">Remover coluna</button>
+            </div>
+          </div>
+
+          <div class="chamada-stats">
+            <div class="stat-chips" id="notas-counters"></div>
+            <label class="check-inline">
+              <input id="notas-tentar-novamente" type="checkbox" checked />
+              <span>Tentar novamente se o SIAEP cair</span>
+            </label>
+          </div>
+
+          <div id="notas-empty" class="empty-box is-hidden"></div>
+          <div id="notas-list" class="student-grid"></div>
+
+          <div class="sticky-footer">
+            <div id="notas-validation" class="validation-hint"></div>
+            <div class="row-actions">
+              <button id="notas-save" class="btn btn-secondary btn-lg" type="button">Salvar fila (sincronizar)</button>
+              <button id="notas-save-run" class="btn btn-primary btn-lg" type="button">Salvar e executar no PC</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ABA 5 (Fase 3): DIÁRIO LOCAL OFFLINE -->
+      <section id="view-diario" class="view">
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">CONSULTA OFFLINE EM SALA</p>
+              <h2>Diário local sincronizado</h2>
+            </div>
+          </div>
+
+          <div class="form-grid-4">
+            <label class="field">
+              <span>Turma</span>
+              <select id="diario-turma"></select>
+            </label>
+            <label class="field">
+              <span>Disciplina</span>
+              <select id="diario-disciplina"></select>
+            </label>
+            <label class="field">
+              <span>Período</span>
+              <select id="diario-periodo">
+                <option value="1º PERIODO">1º período</option>
+                <option value="2º PERIODO">2º período</option>
+                <option value="3º PERIODO">3º período</option>
+                <option value="4º PERIODO">4º período</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Buscar estudante ou aula</span>
+              <input id="diario-search" type="search" placeholder="Nome, matrícula ou tema…" />
+            </label>
+          </div>
+
+          <div id="diario-metrics" class="diary-metrics"></div>
+
+          <div class="segmented diary-tabs" role="tablist">
+            <button class="segmented-btn is-active" data-diario-tab="aulas" type="button">Aulas registradas</button>
+            <button class="segmented-btn" data-diario-tab="alunos" type="button">Estudantes</button>
+            <button class="segmented-btn" data-diario-tab="bimestral" type="button">Boletim bimestral</button>
+            <button class="segmented-btn" data-diario-tab="anual" type="button">Boletim anual</button>
+          </div>
+
+          <div id="diario-content"></div>
+        </article>
+      </section>
+
+      <!-- ABA 6: FILAS & STATUS DO COMPUTADOR -->
+      <section id="view-filas" class="view">
+        <article class="card pc-status-card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">COMPUTADOR (EXECUÇÃO NO SIAEP)</p>
+              <h2 id="pc-status-title">Aguardando primeiro contato do computador</h2>
+            </div>
+            <span id="pc-status-badge" class="badge badge-neutral">Sem dados</span>
+          </div>
+          <p id="pc-status-detail" class="muted-text">
+            Quando o PraxisBot do Windows estiver aberto e com a sincronização ativada, o status da execução aparece aqui.
+          </p>
+          <div id="pc-op-progress" class="pc-op-box is-hidden">
+            <div class="pc-op-text">
+              <strong id="pc-op-label">—</strong>
+              <span id="pc-op-count">0/0</span>
+            </div>
+            <div class="progress-track"><div id="pc-op-bar" class="progress-bar"></div></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">FILAS SINCRONIZADAS</p>
+              <h2>Suas filas</h2>
+            </div>
+            <div class="row-actions">
+              <select id="filas-filter-type" class="compact-select" aria-label="Filtrar por tipo">
+                <option value="">Todos os tipos</option>
+                <option value="FREQUENCIA">Frequência</option>
+                <option value="AULAS">Aulas</option>
+                <option value="AVALIACOES">Avaliações</option>
+                <option value="NOTAS">Notas</option>
+              </select>
+              <label class="check-inline">
+                <input id="filas-show-archived" type="checkbox" />
+                <span>Arquivadas</span>
+              </label>
+            </div>
+          </div>
+          <div id="filas-empty" class="empty-box is-hidden">Nenhuma fila encontrada. Crie uma chamada ou aula pelas abas ao lado.</div>
+          <div id="filas-list" class="queue-cards"></div>
+        </article>
+
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">HISTÓRICO DO COMPUTADOR</p>
+              <h2>Últimas execuções no SIAEP</h2>
+            </div>
+          </div>
+          <div id="reports-empty" class="muted-text">Nenhum relatório sincronizado do computador ainda.</div>
+          <div id="reports-list" class="report-list"></div>
+        </article>
+      </section>
+
+      <!-- ABA 5: AJUSTES -->
+      <section id="view-ajustes" class="view">
+        <div class="ajustes-grid">
+          <article class="card">
+            <p class="eyebrow">CONTA E SINCRONIZAÇÃO</p>
+            <h2>Conexão cifrada (E2EE)</h2>
+            <dl class="facts">
+              <div><dt>Conta</dt><dd id="cfg-email">—</dd></div>
+              <div><dt>Identificador da chave</dt><dd id="cfg-fingerprint">—</dd></div>
+              <div><dt>Última sincronização</dt><dd id="cfg-last-sync">Nunca</dd></div>
+              <div><dt>Alterações pendentes offline</dt><dd id="cfg-pending-count">0</dd></div>
+              <div><dt>Turmas no Diário offline</dt><dd id="cfg-diary-summary">0 turmas · 0 alunos</dd></div>
+            </dl>
+            <div class="row-actions">
+              <button id="cfg-sync-now" class="btn btn-primary" type="button">Sincronizar agora</button>
+              <button id="cfg-repair" class="btn btn-secondary" type="button">Ler novo QR Code</button>
+            </div>
+          </article>
+
+          <article class="card">
+            <p class="eyebrow">INTELIGÊNCIA ARTIFICIAL (LOCAL)</p>
+            <h2>Chave da API Gemini</h2>
+            <p class="muted-text">
+              Usada apenas para gerar planos de aula na aba Aulas. A chave fica guardada <strong>somente neste tablet</strong> e nunca é enviada para o servidor de sincronização.
+            </p>
+            <div class="stack-sm">
+              <label class="field">
+                <span>Chave da API Gemini (Google AI Studio)</span>
+                <input id="cfg-ia-token" type="password" autocomplete="off" placeholder="AIza..." />
+              </label>
+              <p class="muted-text" id="cfg-ia-status">Nenhuma chave salva neste tablet.</p>
+              <div class="row-actions">
+                <button id="cfg-ia-save" class="btn btn-primary btn-sm" type="button">Salvar chave no tablet</button>
+                <button id="cfg-ia-remove" class="btn btn-danger btn-sm is-hidden" type="button">Remover chave</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="card">
+            <p class="eyebrow">PRIVACIDADE E DISPOSITIVO</p>
+            <h2>Dados neste tablet</h2>
+            <p class="muted-text">
+              Os dados do Diário e as filas ficam guardados localmente neste tablet para funcionar sem internet em sala de aula.
+              Todo envio para a nuvem é cifrado em AES-GCM-256 com a chave do QR Code.
+            </p>
+            <p class="muted-text">
+              Este aplicativo companheiro <strong>não conta no limite de 2 dispositivos</strong> da sua licença anual.
+            </p>
+            <div class="row-actions">
+              <button id="cfg-logout" class="btn btn-danger" type="button">Sair e limpar dados deste tablet</button>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal rápido de códigos especiais de frequência (FA, FE, FG, FT, FAT) -->
+  <div id="code-modal" class="modal-backdrop is-hidden" role="dialog" aria-modal="true" aria-labelledby="code-modal-title">
+    <div class="modal-card">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">SITUAÇÃO DE FREQUÊNCIA</p>
+          <h2 id="code-modal-title">Estudante</h2>
+        </div>
+        <button id="code-modal-close" class="icon-btn" type="button" aria-label="Fechar">✕</button>
+      </div>
+      <div id="code-modal-options" class="code-options"></div>
+    </div>
+  </div>
+
+  <!-- Modelos puros compartilhados com src/nucleo/ (copiados em dist-tablet/vendor/ no build) -->
+  <script src="./vendor/catalog-model.js"></script>
+  <script src="./vendor/queue-model.js"></script>
+  <script src="./vendor/schedule-calendar-model.js"></script>
+  <script src="./vendor/previsao-datas-model.js"></script>
+  <script src="./vendor/academic-report-model.js"></script>
+
+  <!-- Módulos do PraxisBot Tablet -->
+  <script src="./src/config.js"></script>
+  <script src="./src/crypto-web.js"></script>
+  <script src="./src/db.js"></script>
+  <script src="./src/supabase.js"></script>
+  <script src="./src/sync.js"></script>
+  <script src="./src/qr-scanner.js"></script>
+  <script src="./src/gemini.js"></script>
+  <script src="./src/domain.js"></script>
+  <script src="./src/phase3-ui.js"></script>
+  <script src="./src/app.js"></script>
+</body>
+</html>
