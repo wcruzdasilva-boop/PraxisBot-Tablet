@@ -19,12 +19,19 @@
     }
 
     function traduzirErroSync(erro) {
+        const codigo = String(erro?.codigo || '');
         const texto = String(erro?.message || erro || '');
+        if (codigo === 'SESSAO_EXPIRADA' || /invalid.*refresh|refresh_token|invalid_grant|session_not_found/i.test(texto)) {
+            return 'Sessão da conta expirada neste tablet. Toque em "Reconectar conta" e digite sua senha (seus registros offline e o pareamento continuam salvos).';
+        }
+        if (codigo === 'LIMITE_TAXA' || /rate limit|too many/i.test(texto)) {
+            return 'Muitas tentativas seguidas no servidor de contas. Aguarde 1 minuto e tente sincronizar novamente.';
+        }
         if (/PGRST205|42P01|relation .* does not exist|Could not find the table/i.test(texto)) {
             return 'Tabelas de sincronização ainda não criadas no Supabase. Aplique backend/companheiro/migration.sql.';
         }
-        if (/Failed to fetch|NetworkError|Load failed|Sem conexão|aborted|timeout/i.test(texto)) {
-            return 'Sem internet — seus registros continuam salvos no tablet e sincronizarão ao reconectar.';
+        if (codigo === 'REDE' || /Failed to fetch|NetworkError|Load failed|aborted|timeout/i.test(texto)) {
+            return 'Sem conexão com o servidor de sincronização — seus registros continuam salvos no tablet e sincronizarão ao reconectar.';
         }
         if (/formato desconhecido|descompressão gzip/i.test(texto)) {
             return 'Atualize a página do PraxisBot Tablet para ler os dados sincronizados pela nova versão do computador.';
@@ -48,6 +55,8 @@
         let promessaSync = null;
         let pendenteNovoCiclo = false;
         let ultimoErro = '';
+        let ultimoCodigoErro = '';
+        let ultimoDetalheErro = '';
         let ultimaSincronizacaoEm = '';
         let chaveAtual = null;
         let impressaoDigital = '';
@@ -88,13 +97,17 @@
         }
 
         function estado() {
+            const stAuth = supabase.estado();
             return {
                 pareado: Boolean(chaveAtual),
                 impressaoDigital,
                 sincronizando,
                 online: Boolean(estaOnline()),
                 ultimaSincronizacaoEm,
-                ultimoErro
+                ultimoErro,
+                ultimoCodigoErro,
+                ultimoDetalheErro,
+                sessaoExpirada: Boolean(stAuth?.sessaoExpirada)
             };
         }
 
@@ -331,12 +344,16 @@
                         ultimoErro = falhasDecifra > 0
                             ? `${falhasDecifra} registro(s) foram cifrados com outra chave. Pareie novamente com o QR Code do computador.`
                             : '';
+                        ultimoCodigoErro = falhasDecifra > 0 ? 'CHAVE_DIVERGENTE' : '';
+                        ultimoDetalheErro = '';
                         ultimoResultado = { sucesso: true, enviadas: linhasParaSubir.length, contextosBaixados: chavesParaBaixar.length, falhasDecifra };
                     } while (pendenteNovoCiclo && chaveAtual && supabase.estado().logado && estaOnline());
                     return ultimoResultado;
                 } catch (erro) {
                     ultimoErro = traduzirErroSync(erro);
-                    return { sucesso: false, erro: ultimoErro };
+                    ultimoCodigoErro = String(erro?.codigo || (erro?.status ? `HTTP_${erro.status}` : ''));
+                    ultimoDetalheErro = String(erro?.message || erro || '').slice(0, 160);
+                    return { sucesso: false, erro: ultimoErro, codigo: ultimoCodigoErro, sessaoExpirada: ultimoCodigoErro === 'SESSAO_EXPIRADA' };
                 } finally {
                     sincronizando = false;
                     promessaSync = null;
@@ -349,7 +366,8 @@
         function iniciarPeriodico(intervaloMs = 25000) {
             if (timer) return;
             timer = setInterval(() => {
-                if (estaOnline() && chaveAtual && supabase.estado().logado) {
+                const stAuth = supabase.estado();
+                if (estaOnline() && chaveAtual && stAuth.logado && !stAuth.sessaoExpirada) {
                     sincronizarAgora().catch(() => {});
                 }
             }, intervaloMs);

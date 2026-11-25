@@ -309,6 +309,7 @@
 
         let titulo = st.online ? 'Conectado' : 'Offline';
         if (st.sincronizando) titulo = 'Sincronizando…';
+        else if (st.sessaoExpirada) titulo = 'Reconectar conta';
         else if (state.pendentesCount) titulo = `${state.pendentesCount} pendência(s) offline`;
 
         const sub = st.ultimaSincronizacaoEm ? `Sync ${domain.formatarDataHoraBr(st.ultimaSincronizacaoEm)}` : 'Ainda não sincronizado';
@@ -326,14 +327,68 @@
         navBadge.classList.toggle('is-hidden', state.pendentesCount === 0);
 
         const erroBox = $('global-sync-error');
-        erroBox.textContent = st.ultimoErro || '';
+        $('global-sync-error-text').textContent = st.ultimoErro || '';
+        $('global-sync-reconnect-btn').classList.toggle('is-hidden', !st.sessaoExpirada);
         erroBox.classList.toggle('is-hidden', !st.ultimoErro);
     }
 
+    function abrirModalReconexao() {
+        $('relogin-email').value = supabase.estado().email || '';
+        $('relogin-password').value = '';
+        const fb = $('relogin-feedback');
+        fb.textContent = '';
+        fb.classList.add('is-hidden');
+        $('relogin-modal').classList.remove('is-hidden');
+        setTimeout(() => $('relogin-password').focus(), 40);
+    }
+
+    function fecharModalReconexao() {
+        $('relogin-modal').classList.add('is-hidden');
+        $('relogin-password').value = '';
+    }
+
+    $('global-sync-reconnect-btn').addEventListener('click', abrirModalReconexao);
+    $('relogin-close').addEventListener('click', fecharModalReconexao);
+    $('relogin-cancel').addEventListener('click', fecharModalReconexao);
+    $('relogin-modal').addEventListener('click', ev => {
+        if (ev.target === $('relogin-modal')) fecharModalReconexao();
+    });
+    $('relogin-form').addEventListener('submit', async ev => {
+        ev.preventDefault();
+        const fb = $('relogin-feedback');
+        fb.textContent = '';
+        fb.classList.add('is-hidden');
+        const btn = $('relogin-submit');
+        btn.disabled = true;
+        btn.textContent = 'Entrando…';
+        const res = await supabase.entrarComSenha($('relogin-email').value, $('relogin-password').value);
+        btn.disabled = false;
+        btn.textContent = 'Entrar e sincronizar';
+        if (!res.sucesso) {
+            fb.textContent = res.erro || 'Não foi possível entrar.';
+            fb.classList.remove('is-hidden');
+            return;
+        }
+        fecharModalReconexao();
+        mostrarToast('Conta reconectada! Sincronizando…');
+        const r = await sync.sincronizarAgora();
+        await recarregarDoBanco();
+        renderizarTudo();
+        if (r.sucesso) mostrarToast('Sincronização concluída!');
+        else if (r.erro) mostrarToast(r.erro, true);
+    });
+
     async function acionarSyncManual() {
+        if (sync.estado().sessaoExpirada) {
+            abrirModalReconexao();
+            return;
+        }
         const r = await sync.sincronizarAgora();
         if (r.sucesso) mostrarToast('Sincronização concluída.');
-        else if (r.offline) mostrarToast('Sem internet. Alterações seguem salvas no tablet.', true);
+        else if (r.sessaoExpirada) {
+            mostrarToast('Sessão expirada. Digite sua senha para continuar sincronizando.', true);
+            abrirModalReconexao();
+        } else if (r.offline) mostrarToast('Sem internet. Alterações seguem salvas no tablet.', true);
         else if (r.erro) mostrarToast(r.erro, true);
     }
     $('sidebar-sync-btn').addEventListener('click', acionarSyncManual);
@@ -1092,10 +1147,15 @@
         $('cfg-last-sync').textContent = st.ultimaSincronizacaoEm ? domain.formatarDataHoraBr(st.ultimaSincronizacaoEm) : 'Nunca';
         $('cfg-pending-count').textContent = String(state.pendentesCount);
         $('cfg-diary-summary').textContent = `${turmas} turma(s) · ${alunos} aluno(s) · ${aulas} aula(s)`;
+        $('cfg-version').textContent = cfg.VERSAO || '—';
+        $('cfg-sync-diag').textContent = st.ultimoCodigoErro
+            ? `${st.ultimoCodigoErro}${st.ultimoDetalheErro ? ` · ${st.ultimoDetalheErro}` : ''}`
+            : (st.online ? 'OK (conectado)' : 'Offline');
         $('cfg-sync-now').disabled = st.sincronizando || !st.online;
     }
 
     $('cfg-sync-now').addEventListener('click', acionarSyncManual);
+    $('cfg-reconnect').addEventListener('click', abrirModalReconexao);
     $('cfg-repair').addEventListener('click', () => {
         state.reparando = true;
         atualizarTelas();
@@ -1150,9 +1210,18 @@
 
     globalThis.addEventListener('online', () => {
         renderizarStatusSync();
-        sync.sincronizarAgora().catch(() => {});
+        if (!supabase.estado().sessaoExpirada) sync.sincronizarAgora().catch(() => {});
     });
     globalThis.addEventListener('offline', () => renderizarStatusSync());
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) return;
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistration?.().then(r => r?.update().catch(() => {})).catch(() => {});
+        }
+        if (supabase.estado().logado && sync.estado().pareado && navigator.onLine !== false && !supabase.estado().sessaoExpirada) {
+            sync.sincronizarAgora().catch(() => {});
+        }
+    });
 
     // Service Worker offline-first (só em HTTPS ou localhost), com recarga automática ao atualizar versão.
     if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {

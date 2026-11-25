@@ -83,6 +83,9 @@ button { cursor: pointer; }
 }
 .alert-warning { background: var(--warning-soft); color: var(--warning); border-color: #f8d4a7; }
 .alert-success { background: var(--success-soft); color: var(--success); border-color: #abefc6; }
+.sync-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
 
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);

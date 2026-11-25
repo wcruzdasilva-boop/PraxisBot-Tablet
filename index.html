@@ -188,7 +188,10 @@
         </div>
       </header>
 
-      <div id="global-sync-error" class="alert alert-warning is-hidden" role="status"></div>
+      <div id="global-sync-error" class="alert alert-warning sync-banner is-hidden" role="status">
+        <span id="global-sync-error-text"></span>
+        <button id="global-sync-reconnect-btn" class="btn btn-primary btn-sm is-hidden" type="button">Reconectar conta</button>
+      </div>
 
       <!-- ABA 1: HOJE & HORÁRIO -->
       <section id="view-hoje" class="view is-active">
@@ -693,9 +696,12 @@
               <div><dt>Última sincronização</dt><dd id="cfg-last-sync">Nunca</dd></div>
               <div><dt>Alterações pendentes offline</dt><dd id="cfg-pending-count">0</dd></div>
               <div><dt>Turmas no Diário offline</dt><dd id="cfg-diary-summary">0 turmas · 0 alunos</dd></div>
+              <div><dt>Versão do Tablet</dt><dd id="cfg-version">—</dd></div>
+              <div><dt>Diagnóstico da conexão</dt><dd id="cfg-sync-diag">OK</dd></div>
             </dl>
             <div class="row-actions">
               <button id="cfg-sync-now" class="btn btn-primary" type="button">Sincronizar agora</button>
+              <button id="cfg-reconnect" class="btn btn-secondary" type="button">Reconectar conta</button>
               <button id="cfg-repair" class="btn btn-secondary" type="button">Ler novo QR Code</button>
             </div>
           </article>
@@ -749,6 +755,38 @@
         <button id="code-modal-close" class="icon-btn" type="button" aria-label="Fechar">✕</button>
       </div>
       <div id="code-modal-options" class="code-options"></div>
+    </div>
+  </div>
+
+  <!-- Modal não-destrutivo de reconexão de sessão expirada (preserva filas offline e pareamento QR) -->
+  <div id="relogin-modal" class="modal-backdrop is-hidden" role="dialog" aria-modal="true" aria-labelledby="relogin-modal-title">
+    <div class="modal-card">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">SESSÃO DA CONTA</p>
+          <h2 id="relogin-modal-title">Reconectar conta PraxisBot</h2>
+        </div>
+        <button id="relogin-close" class="icon-btn" type="button" aria-label="Fechar">✕</button>
+      </div>
+      <p class="muted-text">
+        Digite sua senha novamente para retomar a sincronização com o computador.
+        <strong>Seus registros offline, o Diário salvo e o pareamento QR Code continuam intactos.</strong>
+      </p>
+      <div id="relogin-feedback" class="alert is-hidden" role="alert"></div>
+      <form id="relogin-form" class="stack">
+        <label class="field">
+          <span>E-mail da conta</span>
+          <input id="relogin-email" type="email" autocomplete="email" required />
+        </label>
+        <label class="field">
+          <span>Senha</span>
+          <input id="relogin-password" type="password" autocomplete="current-password" placeholder="Sua senha da conta PraxisBot" required />
+        </label>
+        <div class="row-actions">
+          <button id="relogin-submit" class="btn btn-primary btn-lg" type="submit">Entrar e sincronizar</button>
+          <button id="relogin-cancel" class="btn btn-secondary btn-lg" type="button">Cancelar</button>
+        </div>
+      </form>
     </div>
   </div>
 

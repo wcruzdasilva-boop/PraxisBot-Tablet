@@ -4,4 +4,4 @@ Aplicativo companheiro (PWA) do **PraxisBot** para registro em sala de aula (cha
 
 - **Abrir no tablet:** https://wcruzdasilva-boop.github.io/PraxisBot-Tablet/
 - **Instalar como app no Android (Chrome):** abra o link acima → menu `⋮` → **Adicionar à tela inicial / Instalar aplicativo**.
-- **Build:** `b0c6b4d2e577`
+- **Build:** `19c6d3c90542`

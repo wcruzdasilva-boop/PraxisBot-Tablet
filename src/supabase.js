@@ -5,7 +5,29 @@
     'use strict';
 
     const MARGEM_RENOVACAO_MS = 60 * 1000;
+    const PAUSA_APOS_RATE_LIMIT_MS = 60 * 1000;
+    const TIMEOUT_HTTP_MS = 20 * 1000;
     const TAMANHO_MINIMO_SENHA = 8;
+
+    function erroClassificado(codigo, mensagem, extras = {}) {
+        const erro = new Error(mensagem);
+        erro.codigo = codigo;
+        Object.assign(erro, extras);
+        return erro;
+    }
+
+    function ehErroSessaoExpirada(erro) {
+        const status = Number(erro?.status) || 0;
+        const texto = String(erro?.message || erro || '');
+        if (status === 400 || status === 401) return true;
+        return /invalid.*refresh|refresh_token|invalid_grant|session_not_found|user_not_found|JWT expired/i.test(texto);
+    }
+
+    function ehErroRede(erro) {
+        if (Number(erro?.status) > 0) return false;
+        const texto = String(erro?.message || erro || '');
+        return erro?.name === 'AbortError' || /Failed to fetch|NetworkError|Load failed|aborted|timeout|network/i.test(texto);
+    }
 
     function traduzirErroAuth(erro) {
         const texto = String(erro?.message || erro || '');
@@ -38,6 +60,9 @@
     function criarClienteSupabase({ url, chaveAnon, lerSessao, gravarSessao, buscar = (...a) => global.fetch(...a), agora = () => Date.now() }) {
         let sessao = null;
         let renovando = null;
+        let sessaoExpirada = false;
+        let renovacaoBloqueadaAte = 0;
+        let ultimoErroAuth = '';
 
         async function carregar() {
             sessao = (await lerSessao()) || null;
@@ -48,13 +73,38 @@
             return {
                 logado: Boolean(sessao?.refreshToken && sessao?.senhaDefinida),
                 email: sessao?.email || '',
-                senhaDefinida: Boolean(sessao?.senhaDefinida)
+                senhaDefinida: Boolean(sessao?.senhaDefinida),
+                sessaoExpirada: Boolean(sessaoExpirada),
+                ultimoErroAuth
             };
         }
 
         async function salvar(novaSessao) {
             sessao = novaSessao;
+            if (novaSessao?.refreshToken) {
+                sessaoExpirada = false;
+                renovacaoBloqueadaAte = 0;
+                ultimoErroAuth = '';
+            }
             await gravarSessao(novaSessao);
+        }
+
+        async function buscarComTimeout(endpoint, opcoes = {}) {
+            if (typeof global.AbortController !== 'function') return buscar(endpoint, opcoes);
+            const controlador = new global.AbortController();
+            const timer = setTimeout(() => controlador.abort(), TIMEOUT_HTTP_MS);
+            try {
+                return await buscar(endpoint, { ...opcoes, signal: controlador.signal });
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        async function executarComTrava(fn) {
+            if (global.navigator?.locks?.request) {
+                return global.navigator.locks.request('praxisbot_tablet_auth_refresh', fn);
+            }
+            return fn();
         }
 
         function montarSessao(resposta, emailPadrao = '') {
@@ -69,7 +119,7 @@
         }
 
         async function pedirAuth(caminho, { metodo = 'POST', corpo, token } = {}) {
-            const resposta = await buscar(`${url}/auth/v1${caminho}`, {
+            const resposta = await buscarComTimeout(`${url}/auth/v1${caminho}`, {
                 method: metodo,
                 headers: {
                     apikey: chaveAnon,
@@ -84,6 +134,7 @@
             if (!resposta.ok) {
                 const erro = new Error(dados?.msg || dados?.error_description || dados?.message || `HTTP ${resposta.status}`);
                 erro.status = resposta.status;
+                erro.code = dados?.error_code || dados?.code || '';
                 throw erro;
             }
             return dados;
@@ -143,11 +194,39 @@
             }
         }
 
-        async function obterToken() {
-            if (!sessao?.refreshToken) return null;
-            if (sessao.accessToken && sessao.expiraEm - MARGEM_RENOVACAO_MS > agora()) return sessao.accessToken;
+        async function obterToken({ forcar = false } = {}) {
+            if (!forcar && sessao?.accessToken && !sessaoExpirada && sessao.expiraEm - MARGEM_RENOVACAO_MS > agora()) {
+                return sessao.accessToken;
+            }
             if (renovando) return renovando;
-            renovando = (async () => {
+            renovando = executarComTrava(async () => {
+                // Releitura do IndexedDB sob trava evita reuso do mesmo refresh_token entre
+                // abas do Chrome e o PWA instalado (que fazia o Supabase revogar a sessão).
+                try {
+                    const gravada = await lerSessao();
+                    if (gravada?.refreshToken) {
+                        if (sessao && gravada.refreshToken !== sessao.refreshToken) {
+                            sessaoExpirada = false;
+                            renovacaoBloqueadaAte = 0;
+                            ultimoErroAuth = '';
+                        }
+                        sessao = gravada;
+                    }
+                } catch (_) { /* mantém sessão em memória */ }
+
+                if (!sessao?.refreshToken) {
+                    sessaoExpirada = true;
+                    throw erroClassificado('SESSAO_EXPIRADA', 'Sessão da conta ausente no tablet.');
+                }
+                if (!forcar && !sessaoExpirada && sessao.accessToken && sessao.expiraEm - MARGEM_RENOVACAO_MS > agora()) {
+                    return sessao.accessToken;
+                }
+                if (!forcar && sessaoExpirada) {
+                    throw erroClassificado('SESSAO_EXPIRADA', ultimoErroAuth || 'Sessão da conta expirada no tablet.');
+                }
+                if (!forcar && agora() < renovacaoBloqueadaAte) {
+                    throw erroClassificado('LIMITE_TAXA', ultimoErroAuth || 'Muitas tentativas seguidas no servidor de contas.');
+                }
                 try {
                     const resposta = await pedirAuth('/token?grant_type=refresh_token', {
                         corpo: { refresh_token: sessao.refreshToken }
@@ -156,19 +235,30 @@
                     nova.senhaDefinida = true;
                     await salvar(nova);
                     return nova.accessToken;
-                } catch (_) {
-                    return null;
-                } finally {
-                    renovando = null;
+                } catch (erro) {
+                    const detalhe = String(erro?.message || erro || '').slice(0, 160);
+                    ultimoErroAuth = detalhe;
+                    if (ehErroSessaoExpirada(erro)) {
+                        sessaoExpirada = true;
+                        throw erroClassificado('SESSAO_EXPIRADA', detalhe || 'Sessão da conta expirada no tablet.', { status: erro?.status });
+                    }
+                    if (erro?.status === 429 || /rate limit|too many/i.test(detalhe)) {
+                        renovacaoBloqueadaAte = agora() + PAUSA_APOS_RATE_LIMIT_MS;
+                        throw erroClassificado('LIMITE_TAXA', detalhe || 'Limite de requisições atingido.', { status: 429 });
+                    }
+                    if (ehErroRede(erro)) {
+                        throw erroClassificado('REDE', detalhe || 'Failed to fetch');
+                    }
+                    throw erroClassificado('SERVIDOR', detalhe || `HTTP ${erro?.status || 0}`, { status: erro?.status });
                 }
-            })();
+            }).finally(() => {
+                renovando = null;
+            });
             return renovando;
         }
 
-        async function pedirRest(caminho, { metodo = 'GET', corpo, headersExtras = {} } = {}) {
-            const token = await obterToken();
-            if (!token) throw new Error('Sem conexão com a conta ou sessão indisponível.');
-            const resposta = await buscar(`${url}/rest/v1/${caminho}`, {
+        async function executarRestComToken(caminho, { metodo, corpo, headersExtras, token }) {
+            const resposta = await buscarComTimeout(`${url}/rest/v1/${caminho}`, {
                 method: metodo,
                 headers: {
                     apikey: chaveAnon,
@@ -190,10 +280,31 @@
             return { dados, userId: extrairUserIdDoJwt(token) };
         }
 
+        async function pedirRest(caminho, { metodo = 'GET', corpo, headersExtras = {} } = {}) {
+            let token = await obterToken();
+            try {
+                return await executarRestComToken(caminho, { metodo, corpo, headersExtras, token });
+            } catch (erro) {
+                if (erro?.status === 401) {
+                    // Token pode ter expirado antes do esperado (ex.: relógio do tablet após suspensão):
+                    // força uma única renovação e tenta de novo antes de falhar.
+                    token = await obterToken({ forcar: true });
+                    return executarRestComToken(caminho, { metodo, corpo, headersExtras, token });
+                }
+                if (ehErroRede(erro)) {
+                    throw erroClassificado('REDE', String(erro?.message || 'Failed to fetch'));
+                }
+                throw erro;
+            }
+        }
+
         async function sair() {
             if (sessao?.accessToken) {
                 try { await pedirAuth('/logout?scope=local', { token: sessao.accessToken }); } catch (_) { /* offline */ }
             }
+            sessaoExpirada = false;
+            renovacaoBloqueadaAte = 0;
+            ultimoErroAuth = '';
             await salvar(null);
         }
 

@@ -1,7 +1,7 @@
 // Service Worker offline-first do PraxisBot Tablet.
 // Pré-carrega o aplicativo estático para funcionar sem internet em sala de aula e
 // nunca intercepta nem guarda em cache requisições da API do Supabase.
-const CACHE_NAME = 'praxisbot-tablet-b0c6b4d2e577';
+const CACHE_NAME = 'praxisbot-tablet-19c6d3c90542';
 const ARQUIVOS_SHELL = [
     './',
     './index.html',
