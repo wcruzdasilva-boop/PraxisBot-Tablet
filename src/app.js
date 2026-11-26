@@ -557,7 +557,10 @@
         const fila = registro.fila;
         const dbBase = diarioBase();
         const turmas = domain.obterTurmas(dbBase);
-        const turma = turmas.find(t => t.rotulo === fila.turmas?.[0]) || turmas[0] || null;
+        const alvoRotulo = fila.turmas?.[0] || '';
+        const turma = turmas.find(t => t.rotulo === alvoRotulo)
+            || turmas.find(t => domain.assinatura(t.rotulo) === domain.assinatura(alvoRotulo))
+            || turmas[0] || null;
         const alunos = turma ? domain.alunosDaTurma(dbBase, turma.id, queueModel) : [];
         const lido = domain.lerMatrizFrequencia(fila.matrizTexto, alunos, 1);
         state.chamada = {

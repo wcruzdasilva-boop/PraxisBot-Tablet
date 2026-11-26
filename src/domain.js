@@ -120,11 +120,14 @@
 
     function aulasDaTurmaDisciplina(blocoAulas = {}, turmaId = '', disciplinaNome = '') {
         const alvoAss = assinatura(disciplinaNome);
-        return (Array.isArray(blocoAulas?.aulas) ? blocoAulas.aulas : []).filter(a => {
+        const filtradas = (Array.isArray(blocoAulas?.aulas) ? blocoAulas.aulas : []).filter(a => {
             if (a.turmaId !== turmaId) return false;
             if (!alvoAss) return true;
             return assinatura(a.componente || a.disciplinaId?.replace(/^disciplina-/, '')) === alvoAss;
         });
+        return global.SiaepPrevisaoDatasModel?.consolidarAulas
+            ? global.SiaepPrevisaoDatasModel.consolidarAulas(filtradas)
+            : filtradas;
     }
 
     // Monta os cartões de aulas de um dia específico para a aba "Hoje & Horário".

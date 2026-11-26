@@ -97,16 +97,115 @@
         return cronograma;
     }
 
+    // Consolida registros duplicados da mesma aula na mesma data/horário (por exemplo,
+    // uma aula gravada por fila AULA sem hora/sem frequenciaLancada e depois atualizada
+    // por fila FREQUENCIA ou LISTAGEM_AULAS com hora e frequenciaLancada: true). Preserva
+    // horários distintos na mesma data e prefere frequenciaLancada: true quando confirmado.
+    function mesclarFrequenciaLancada(atual, extra) {
+        if (atual === true || extra === true) return true;
+        if (atual === false || extra === false) return false;
+        return undefined;
+    }
+
+    function candidatosTema(aula) {
+        const lista = [];
+        const tema = normalizarTexto(aula?.tema);
+        const desc = normalizarTexto(aula?.descricao);
+        if (tema) lista.push(tema);
+        if (desc && desc !== tema) lista.push(desc);
+        return lista;
+    }
+
+    function mesmoTema(a, b) {
+        const ca = candidatosTema(a);
+        const cb = candidatosTema(b);
+        if (!ca.length || !cb.length) return false;
+        return ca.some(x => cb.some(y =>
+            x === y || (Math.min(x.length, y.length) >= 12 && (x.startsWith(y) || y.startsWith(x)))
+        ));
+    }
+
+    function mesclarAulasMesmoSlot(base, extra) {
+        const principal = (extra?.hora && !base?.hora) || (extra?.frequenciaLancada === true && base?.frequenciaLancada !== true)
+            ? extra
+            : base;
+        const secundario = principal === base ? extra : base;
+        const saida = { ...secundario, ...principal };
+        saida.hora = String(principal?.hora || secundario?.hora || '').trim();
+        saida.momento = String(principal?.momento || secundario?.momento || '').trim();
+        saida.tema = String(principal?.tema || secundario?.tema || '').trim();
+        const descP = String(principal?.descricao || '').trim();
+        const descS = String(secundario?.descricao || '').trim();
+        saida.descricao = descP.length >= descS.length ? (descP || saida.tema) : (descS || saida.tema);
+        if (principal?.componente || secundario?.componente) {
+            saida.componente = principal?.componente || secundario?.componente;
+        }
+        const freq = mesclarFrequenciaLancada(base?.frequenciaLancada, extra?.frequenciaLancada);
+        if (typeof freq === 'boolean') saida.frequenciaLancada = freq;
+        else delete saida.frequenciaLancada;
+        return saida;
+    }
+
+    function consolidarAulas(aulas = []) {
+        const porGrupo = new Map();
+        (Array.isArray(aulas) ? aulas : []).forEach(aula => {
+            if (!aula || !/^\d{4}-\d{2}-\d{2}$/.test(String(aula.data || ''))) return;
+            const disc = String(aula.disciplinaId || normalizarTexto(aula.componente || ''));
+            const chave = `${String(aula.turmaId || '')}|${disc}|${aula.data}`;
+            if (!porGrupo.has(chave)) porGrupo.set(chave, []);
+            porGrupo.get(chave).push(aula);
+        });
+
+        const consolidadas = [];
+        for (const lista of porGrupo.values()) {
+            const comHora = new Map();
+            const semHora = [];
+            for (const aula of lista) {
+                const hora = String(aula.hora || '').trim();
+                if (hora) {
+                    const existente = comHora.get(hora);
+                    comHora.set(hora, existente ? mesclarAulasMesmoSlot(existente, aula) : { ...aula, hora });
+                } else {
+                    semHora.push({ ...aula, hora: '' });
+                }
+            }
+            const restantesSemHora = [];
+            for (const item of semHora) {
+                let chaveCasada = '';
+                for (const [hora, slot] of comHora.entries()) {
+                    if (mesmoTema(item, slot)) {
+                        chaveCasada = hora;
+                        break;
+                    }
+                }
+                if (!chaveCasada && !candidatosTema(item).length && comHora.size === 1) {
+                    chaveCasada = comHora.keys().next().value;
+                }
+                if (chaveCasada) {
+                    comHora.set(chaveCasada, mesclarAulasMesmoSlot(comHora.get(chaveCasada), item));
+                    continue;
+                }
+                const indiceIgual = restantesSemHora.findIndex(outro => mesmoTema(item, outro));
+                if (indiceIgual >= 0) {
+                    restantesSemHora[indiceIgual] = mesclarAulasMesmoSlot(restantesSemHora[indiceIgual], item);
+                } else {
+                    restantesSemHora.push(item);
+                }
+            }
+            const diaConsolidado = [...comHora.values(), ...restantesSemHora]
+                .sort((a, b) => String(a.hora || '').localeCompare(String(b.hora || '')));
+            consolidadas.push(...diaConsolidado);
+        }
+        return consolidadas.sort((a, b) => `${a.data} ${a.hora || ''}`.localeCompare(`${b.data} ${b.hora || ''}`));
+    }
+
     // aulasRegistradas: aulas da turma na disciplina, do Diário local ({ data ISO, hora, descricao|tema }).
     function marcarAulasRegistradas(cronograma, aulasRegistradas = []) {
         const porData = new Map();
-        (Array.isArray(aulasRegistradas) ? aulasRegistradas : [])
-            .filter(aula => /^\d{4}-\d{2}-\d{2}$/.test(String(aula?.data || '')))
-            .slice()
-            .sort((a, b) => String(a.hora || '').localeCompare(String(b.hora || '')))
+        consolidarAulas(aulasRegistradas)
             .forEach(aula => {
                 if (!porData.has(aula.data)) porData.set(aula.data, []);
-                porData.get(aula.data).push(String(aula.descricao || aula.tema || '').trim());
+                porData.get(aula.data).push(String(aula.tema || aula.descricao || '').trim());
             });
         return cronograma.map(slot => {
             const temas = porData.get(slot.data) || [];
@@ -162,10 +261,8 @@
     function gruposFrequencia({ dataInicial, aulas = [] }) {
         const base = String(dataInicial || '');
         const grupos = new Map();
-        (Array.isArray(aulas) ? aulas : [])
-            .filter(aula => /^\d{4}-\d{2}-\d{2}$/.test(String(aula?.data || '')) && aula.data >= base)
-            .slice()
-            .sort((a, b) => `${a.data} ${a.hora || ''}`.localeCompare(`${b.data} ${b.hora || ''}`))
+        consolidarAulas(aulas)
+            .filter(aula => aula.data >= base)
             .forEach(aula => {
                 if (!grupos.has(aula.data)) grupos.set(aula.data, []);
                 grupos.get(aula.data).push(aula);
@@ -243,6 +340,7 @@
 
     const modelo = Object.freeze({
         cronogramaAulas,
+        consolidarAulas,
         marcarAulasRegistradas,
         previsaoAulasTurma,
         remocaoAulas,
